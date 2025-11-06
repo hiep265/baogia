@@ -1,0 +1,88 @@
+Tiến độ Task 2 (Module Workbook)
+Đã hoàn thành (code)
+DB layer (Main): Khởi tạo SQLite tại app.getPath('userData'), bật FK, tạo bảng quotes, quote_workbooks.
+Workbook repository (Main): 
+getLatest
+, 
+patch
+ (setCell), sheets.list/add/rename/remove/reorder/setActive, 
+recalc
+ (HyperFormula).
+IPC (Main): Đăng ký đầy đủ workbook.* + giữ 
+ping
+.
+Preload: Expose window.api.workbook.* an toàn qua contextBridge.
+Renderer typings: Bổ sung type cho window.api.workbook và model Workbook tối thiểu.
+Cấu hình: Bổ sung deps vào 
+package.json
+ cho better-sqlite3, hyperformula.
+Chưa thực thi do môi trường
+Cần cài Node/npm và chạy npm install. Trên máy bạn hiện chưa có npm (log: “Command 'npm' not found”).
+Thay đổi chính trong mã
+Main
+src/main/db.ts
+: mở DB, migrate bảng quotes, quote_workbooks.
+src/main/workbook.ts
+: repository + logic sheet/cell + 
+recalc
+ (dùng require('hyperformula') động để tránh lỗi nếu chưa cài).
+src/main/index.ts
+: 
+initDb()
+ và 
+registerIpc()
+ trước 
+createWindow()
+. Handlers:
+workbook.getLatest
+, 
+workbook.patch
+, 
+workbook.recalc
+workbook.sheets.list/add/rename/remove/reorder/setActive
+ping
+src/main/types.d.ts
+: declare module 'hyperformula' (hỗ trợ type khi cài xong).
+Preload
+src/preload/index.ts
+: expose window.api.workbook.* (getLatest, patch, recalc, sheets.*).
+Renderer
+src/renderer/src/global.d.ts
+: thêm type cho Workbook và window.api.workbook.
+Cách cài đặt và chạy
+Cài Node/npm (Ubuntu/Debian)
+sudo apt update
+sudo apt install -y nodejs npm build-essential python3 make g++
+Cài dependencies
+npm install
+(Nếu cần) rebuild native cho Electron:
+node -e "console.log(require('electron/package.json').version)"
+npm rebuild better-sqlite3 --runtime=electron --target=<phiên_bản_electron> --disturl=https://electronjs.org/headers
+Chạy dev
+npm run dev
+Lưu ý: các API Workbook yêu cầu có sẵn một quote trong DB. Nếu chưa có, gọi 
+getLatest(quoteId)
+ sẽ ném quote_not_found. Bạn có thể chèn 1 bản ghi quotes thủ công cho mục đích test, hoặc tôi có thể bổ sung IPC quotes.create (nếu bạn muốn).
+Cách test nhanh
+Mở app ở dev, mở DevTools Console của Renderer và chạy (giả sử quoteId = 1 đã tồn tại):
+await window.api.workbook.getLatest(1)
+await window.api.workbook.sheets.add(1, 'Bảng 2')
+await window.api.workbook.patch(1, { ops: [{ type: 'setCell', sheet: 'Sheet1', row_uid: 'row-1', col: 'A', t: 'n', value: 2 }, { type: 'setCell', sheet: 'Sheet1', row_uid: 'row-1', col: 'B', f: '=A2*3' }] })
+await window.api.workbook.recalc(1)
+await window.api.workbook.sheets.list(1)*
+TODO trạng thái
+[Completed] Add DB layer in Main
+[Completed] Implement Workbook repo + sheets ops + patch
+[Completed] Integrate HyperFormula + recalc
+[Completed] Register IPC workbook.* + expose Preload
+[Completed] Update renderer typings
+[Completed] Wire init in main/index.ts
+[Pending] Install Node/npm và npm install; rebuild better-sqlite3 nếu cần
+[Pending] Thêm test cơ bản cho repo/recalc (tùy chọn)*
+Gợi ý tiếp theo
+Thêm module quotes (IPC quotes.create/list/get) để thuận tiện tạo quote phục vụ test và luồng thực tế.
+Kết nối UI Renderer với các API workbook để hiển thị sheet và chỉnh sửa ô.
+Tóm tắt
+Task 2 đã được triển khai đầy đủ ở Main/Preload/Typings theo docs. Bạn cần cài Node/npm và chạy cài đặt để khởi động app; sau đó có thể dùng các API window.api.workbook.* với một quoteId hợp lệ để kiểm thử. Bạn muốn tôi bổ sung IPC quotes.create để dễ seed dữ liệu không?*
+
+Feedback submitted

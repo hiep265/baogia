@@ -1,5 +1,7 @@
 import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import path from 'node:path'
+import { initDb } from './db'
+import * as WB from './workbook'
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -30,7 +32,22 @@ function createWindow() {
   })
 }
 
+function registerIpc() {
+  ipcMain.handle('workbook.getLatest', (_evt, quoteId: number) => WB.getLatest(quoteId))
+  ipcMain.handle('workbook.patch', (_evt, quoteId: number, payload: { ops: WB.PatchOp[] }) => WB.patch(quoteId, payload.ops))
+  ipcMain.handle('workbook.recalc', (_evt, quoteId: number) => WB.recalc(quoteId))
+  ipcMain.handle('workbook.sheets.list', (_evt, quoteId: number) => WB.sheetsList(quoteId))
+  ipcMain.handle('workbook.sheets.add', (_evt, quoteId: number, name: string) => WB.sheetsAdd(quoteId, name))
+  ipcMain.handle('workbook.sheets.rename', (_evt, quoteId: number, oldName: string, newName: string) => WB.sheetsRename(quoteId, oldName, newName))
+  ipcMain.handle('workbook.sheets.remove', (_evt, quoteId: number, name: string) => WB.sheetsRemove(quoteId, name))
+  ipcMain.handle('workbook.sheets.reorder', (_evt, quoteId: number, order: string[]) => WB.sheetsReorder(quoteId, order))
+  ipcMain.handle('workbook.sheets.setActive', (_evt, quoteId: number, name: string) => WB.sheetsSetActive(quoteId, name))
+  ipcMain.handle('ping', async () => 'pong')
+}
+
 app.whenReady().then(() => {
+  initDb()
+  registerIpc()
   createWindow()
 
   app.on('activate', () => {
