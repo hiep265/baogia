@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 
 contextBridge.exposeInMainWorld('api', {
   ping: () => ipcRenderer.invoke('ping'),
+  quotes: {
+    ensureDefault: () => ipcRenderer.invoke('quotes.ensureDefault'),
+  },
   workbook: {
     getLatest: (quoteId: number) => ipcRenderer.invoke('workbook.getLatest', quoteId),
     patch: (quoteId: number, payload: { ops: any[] }) => ipcRenderer.invoke('workbook.patch', quoteId, payload),

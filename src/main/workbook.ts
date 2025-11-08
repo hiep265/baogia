@@ -106,15 +106,12 @@ export function sheetsSetActive(quoteId: number, name: string) {
   return saveNewVersion(quoteId, workbook)
 }
 
-export type PatchOp = {
-  type: 'setCell'
-  sheet: string
-  row_uid: string
-  col: string
-  value?: any
-  t?: 'n'|'s'
-  f?: string
-}
+export type PatchOp =
+  | { type: 'setCell'; sheet: string; row_uid: string; col: string; value?: any; t?: 'n'|'s'; f?: string }
+  | { type: 'addRow'; sheet: string; row_uid: string }
+  | { type: 'removeRow'; sheet: string; row_uid: string }
+  | { type: 'addColumn'; sheet: string; col: string; name?: string }
+  | { type: 'removeColumn'; sheet: string; col: string }
 
 export function patch(quoteId: number, ops: PatchOp[]) {
   const { workbook } = getLatest(quoteId)
@@ -129,6 +126,27 @@ export function patch(quoteId: number, ops: PatchOp[]) {
       if (op.t !== undefined) cell.t = op.t
       if (op.value !== undefined) cell.v = op.value
       row.cells[op.col] = cell
+    } else if (op.type === 'addRow') {
+      const s = workbook.sheets.find((x: any) => x.name === op.sheet)
+      if (!s) continue
+      if (!s.rows.some((r: any) => r.uid === op.row_uid)) {
+        s.rows.push({ uid: op.row_uid, cells: {} })
+      }
+    } else if (op.type === 'removeRow') {
+      const s = workbook.sheets.find((x: any) => x.name === op.sheet)
+      if (!s) continue
+      s.rows = s.rows.filter((r: any) => r.uid !== op.row_uid)
+    } else if (op.type === 'addColumn') {
+      const s = workbook.sheets.find((x: any) => x.name === op.sheet)
+      if (!s) continue
+      s.columns = s.columns || []
+      const exists = s.columns.some((c: any) => c.key === op.col)
+      if (!exists) s.columns.push({ key: op.col, name: op.name ?? op.col })
+    } else if (op.type === 'removeColumn') {
+      const s = workbook.sheets.find((x: any) => x.name === op.sheet)
+      if (!s) continue
+      if (s.columns) s.columns = s.columns.filter((c: any) => c.key !== op.col)
+      for (const r of s.rows) delete r.cells[op.col]
     }
   }
   return saveNewVersion(quoteId, workbook)

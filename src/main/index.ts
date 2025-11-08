@@ -2,6 +2,7 @@ import { app, BrowserWindow, shell, ipcMain } from 'electron'
 import path from 'node:path'
 import { initDb } from './db'
 import * as WB from './workbook'
+import * as Quotes from './quotes'
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -43,6 +44,7 @@ function registerIpc() {
   ipcMain.handle('workbook.sheets.reorder', (_evt, quoteId: number, order: string[]) => WB.sheetsReorder(quoteId, order))
   ipcMain.handle('workbook.sheets.setActive', (_evt, quoteId: number, name: string) => WB.sheetsSetActive(quoteId, name))
   ipcMain.handle('ping', async () => 'pong')
+  ipcMain.handle('quotes.ensureDefault', () => Quotes.ensureDefault())
 }
 
 app.whenReady().then(() => {
@@ -58,5 +60,3 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
-
-ipcMain.handle('ping', async () => 'pong')
