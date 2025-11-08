@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import SplitView from '../components/SplitView'
 import AssetPane from '../components/AssetPane'
-import SheetTabs from '../components/SheetTabs'
-import Spreadsheet from '../components/Spreadsheet'
+import UniverSpreadsheet from '../components/UniverSpreadsheet'
 
 export default function WorkbookView() {
   const [quoteId, setQuoteId] = useState<number | null>(null)
@@ -34,13 +33,10 @@ export default function WorkbookView() {
 
   const right = useMemo(() => (
     <div className="workbook-pane">
-      <div className="workbook-header">
-        <div className="title">Workbook</div>
-      </div>
-      <SheetTabs quoteId={quoteId || 0} sheets={sheets} active={active || undefined} onChanged={reload} />
+      {/* <SheetTabs quoteId={quoteId || 0} sheets={sheets} active={active || undefined} onChanged={reload} /> */}
       <div className="sheet-container">
         {quoteId && active ? (
-          <Spreadsheet quoteId={quoteId} sheetName={active} refreshKey={refreshKey} />
+          <UniverSpreadsheet quoteId={quoteId} sheetName={active} refreshKey={refreshKey} />
         ) : (
           <div className="placeholder">Chưa có sheet</div>
         )}
