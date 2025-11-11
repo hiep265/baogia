@@ -3,9 +3,14 @@ import { createUniver, LocaleType, mergeLocales } from '@univerjs/presets'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import sheetsCoreViVN from '@univerjs/preset-sheets-core/locales/vi-VN'
 import '@univerjs/preset-sheets-core/lib/index.css'
+import { UniverSheetsDrawingPreset } from '@univerjs/preset-sheets-drawing'
+import '@univerjs/preset-sheets-drawing/lib/index.css'
+import { UniverSheetsAdvancedPreset } from '@univerjs/preset-sheets-advanced'
+import '@univerjs/preset-sheets-advanced/lib/index.css'
 
 const DEFAULT_COL_COUNT = 26
 const DEFAULT_ROW_COUNT = 100
+const UNIVERSER_ENDPOINT = (import.meta as any).env?.VITE_UNIVERSER_ENDPOINT || 'http://localhost:3010'
 
 function colKeyToIndex(key: string): number {
   let n = 0
@@ -78,10 +83,15 @@ export default function UniverSpreadsheet({ quoteId, sheetName, refreshKey }: Pr
           ribbonType: 'default',
           footer: { sheetBar: true, statisticBar: true, menus: true, zoomSlider: true },
         }),
+        UniverSheetsDrawingPreset(),
+        UniverSheetsAdvancedPreset({
+          universerEndpoint: UNIVERSER_ENDPOINT,
+        }),
       ],
       plugins: [],
     })
     univerRef.current = { univer, univerAPI }
+    ;(window as any).__univer = { univer, univerAPI }
   }, [])
 
   const buildWorkbookData = useCallback(async () => {

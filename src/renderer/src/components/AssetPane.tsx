@@ -83,50 +83,155 @@ export default function AssetPane({ quoteId, onWorkbookChanged }: { quoteId?: nu
     if (!files || !quoteId) return
     setExcelBusy(true)
     try {
+      const univerAPI = (window as any).__univer?.univerAPI
+      const canUseUniverImport = !!(univerAPI && typeof univerAPI.importXLSXToSnapshotAsync === 'function')
       for (const f of Array.from(files)) {
         const baseName = f.name.replace(/\.[^.]+$/, '')
-        const ab = await f.arrayBuffer()
-        const wb = XLSX.read(ab, { type: 'array' })
         let lastImportedSheet: string | null = null
-        for (const sh of wb.SheetNames) {
-          const ws = wb.Sheets[sh]
-          const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as any
-          if (!rows || rows.length === 0) continue
-          const header = (rows[0] as any[]) || []
-          const colCount = Math.max(header.length, ...rows.map(r => r?.length || 0))
-          const preferred = wb.SheetNames.length === 1 ? baseName : `${baseName}-${sh}`
-          let names: string[] = []
-          try { names = await (window as any).api.workbook.sheets.list(quoteId) } catch {}
-          const exists = new Set(names)
-          let i = 1
-          let targetName = preferred
-          while (exists.has(targetName)) targetName = `${preferred} (${i++})`
-          try { await (window as any).api.workbook.sheets.add(quoteId, targetName) } catch {}
-          const ops: any[] = []
-          for (let j = 0; j < colCount; j++) {
-            const colKey = indexToColKey(j)
-            const name = (header[j] !== undefined && header[j] !== null && String(header[j]).trim() !== '') ? String(header[j]) : colKey
-            ops.push({ type: 'addColumn', sheet: targetName, col: colKey, name })
-          }
-          for (let i = 1; i < rows.length; i++) {
-            const row = rows[i] || []
-            const row_uid = 'row-' + Math.random().toString(36).slice(2)
-            ops.push({ type: 'addRow', sheet: targetName, row_uid })
-            for (let j = 0; j < Math.min(colCount, row.length); j++) {
-              const val = row[j]
-              if (val === undefined || val === null || val === '') continue
-              const colKey = indexToColKey(j)
-              if (typeof val === 'string' && val.startsWith('=')) {
-                ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, f: val })
-              } else if (isNumeric(val)) {
-                ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, t: 'n', value: Number(val) })
-              } else {
-                ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, t: 's', value: String(val) })
+        if (canUseUniverImport) {
+          try {
+            const snapshot = await univerAPI.importXLSXToSnapshotAsync(f)
+            const sheetOrder: string[] = Array.isArray(snapshot?.sheetOrder) ? snapshot.sheetOrder : Object.keys(snapshot?.sheets || {})
+            for (const sid of sheetOrder) {
+              const s = snapshot.sheets[sid]
+              if (!s) continue
+              const preferred = sheetOrder.length === 1 ? (s.name || baseName) : `${baseName}-${s.name || sid}`
+              let names: string[] = []
+              try { names = await (window as any).api.workbook.sheets.list(quoteId) } catch {}
+              const exists = new Set(names)
+              let i = 1
+              let targetName = preferred
+              while (exists.has(targetName)) targetName = `${preferred} (${i++})`
+              try { await (window as any).api.workbook.sheets.add(quoteId, targetName) } catch {}
+
+              const cellData: Record<string, Record<string, any>> = s.cellData || {}
+              const usedRowIdx = Object.keys(cellData).map(k => Number(k)).filter(n => Number.isFinite(n))
+              const usedColIdx = new Set<number>()
+              for (const rKey in cellData) {
+                const row = cellData[rKey] || {}
+                for (const cKey in row) usedColIdx.add(Number(cKey))
               }
+              const maxCol = usedColIdx.size > 0 ? Math.max(...Array.from(usedColIdx)) : -1
+              const colCount = Math.max(0, maxCol + 1)
+              const headerRow = cellData[0] || {}
+              const ops: any[] = []
+              for (let j = 0; j < colCount; j++) {
+                const colKey = indexToColKey(j)
+                const headerCell = headerRow[j]
+                const name = (headerCell?.v !== undefined && headerCell?.v !== null && String(headerCell?.v).trim() !== '') ? String(headerCell.v) : colKey
+                ops.push({ type: 'addColumn', sheet: targetName, col: colKey, name })
+              }
+              const dataRowMax = usedRowIdx.filter(n => n > 0).reduce((a, b) => Math.max(a, b), 0)
+              for (let r = 1; r <= dataRowMax; r++) {
+                const row = cellData[r] || {}
+                const hasAny = Object.keys(row).length > 0
+                if (!hasAny) continue
+                const row_uid = 'row-' + Math.random().toString(36).slice(2)
+                ops.push({ type: 'addRow', sheet: targetName, row_uid })
+                for (let j = 0; j < colCount; j++) {
+                  const cell = row[j]
+                  if (!cell) continue
+                  const colKey = indexToColKey(j)
+                  if (typeof cell.f === 'string' && cell.f.trim() !== '') {
+                    ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, f: cell.f })
+                  } else if (cell.v !== undefined && cell.v !== null) {
+                    if (isNumeric(cell.v)) ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, t: 'n', value: Number(cell.v) })
+                    else ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, t: 's', value: String(cell.v) })
+                  }
+                }
+              }
+              if (ops.length > 0) await (window as any).api.workbook.patch(quoteId, { ops })
+              lastImportedSheet = targetName
+            }
+          } catch (e) {
+            // Fallback if server import fails
+            const ab = await f.arrayBuffer()
+            const wb = XLSX.read(ab, { type: 'array' })
+            for (const sh of wb.SheetNames) {
+              const ws = wb.Sheets[sh]
+              const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as any
+              if (!rows || rows.length === 0) continue
+              const header = (rows[0] as any[]) || []
+              const colCount = Math.max(header.length, ...rows.map(r => r?.length || 0))
+              const preferred = wb.SheetNames.length === 1 ? baseName : `${baseName}-${sh}`
+              let names: string[] = []
+              try { names = await (window as any).api.workbook.sheets.list(quoteId) } catch {}
+              const exists = new Set(names)
+              let i = 1
+              let targetName = preferred
+              while (exists.has(targetName)) targetName = `${preferred} (${i++})`
+              try { await (window as any).api.workbook.sheets.add(quoteId, targetName) } catch {}
+              const ops: any[] = []
+              for (let j = 0; j < colCount; j++) {
+                const colKey = indexToColKey(j)
+                const name = (header[j] !== undefined && header[j] !== null && String(header[j]).trim() !== '') ? String(header[j]) : colKey
+                ops.push({ type: 'addColumn', sheet: targetName, col: colKey, name })
+              }
+              for (let i = 1; i < rows.length; i++) {
+                const row = rows[i] || []
+                const row_uid = 'row-' + Math.random().toString(36).slice(2)
+                ops.push({ type: 'addRow', sheet: targetName, row_uid })
+                for (let j = 0; j < Math.min(colCount, row.length); j++) {
+                  const val = row[j]
+                  if (val === undefined || val === null || val === '') continue
+                  const colKey = indexToColKey(j)
+                  if (typeof val === 'string' && val.startsWith('=')) {
+                    ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, f: val })
+                  } else if (isNumeric(val)) {
+                    ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, t: 'n', value: Number(val) })
+                  } else {
+                    ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, t: 's', value: String(val) })
+                  }
+                }
+              }
+              if (ops.length > 0) await (window as any).api.workbook.patch(quoteId, { ops })
+              lastImportedSheet = targetName
             }
           }
-          if (ops.length > 0) await (window as any).api.workbook.patch(quoteId, { ops })
-          lastImportedSheet = targetName
+        } else {
+          // Original XLSX parsing fallback when Univer server import is not available
+          const ab = await f.arrayBuffer()
+          const wb = XLSX.read(ab, { type: 'array' })
+          for (const sh of wb.SheetNames) {
+            const ws = wb.Sheets[sh]
+            const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as any
+            if (!rows || rows.length === 0) continue
+            const header = (rows[0] as any[]) || []
+            const colCount = Math.max(header.length, ...rows.map(r => r?.length || 0))
+            const preferred = wb.SheetNames.length === 1 ? baseName : `${baseName}-${sh}`
+            let names: string[] = []
+            try { names = await (window as any).api.workbook.sheets.list(quoteId) } catch {}
+            const exists = new Set(names)
+            let i = 1
+            let targetName = preferred
+            while (exists.has(targetName)) targetName = `${preferred} (${i++})`
+            try { await (window as any).api.workbook.sheets.add(quoteId, targetName) } catch {}
+            const ops: any[] = []
+            for (let j = 0; j < colCount; j++) {
+              const colKey = indexToColKey(j)
+              const name = (header[j] !== undefined && header[j] !== null && String(header[j]).trim() !== '') ? String(header[j]) : colKey
+              ops.push({ type: 'addColumn', sheet: targetName, col: colKey, name })
+            }
+            for (let i = 1; i < rows.length; i++) {
+              const row = rows[i] || []
+              const row_uid = 'row-' + Math.random().toString(36).slice(2)
+              ops.push({ type: 'addRow', sheet: targetName, row_uid })
+              for (let j = 0; j < Math.min(colCount, row.length); j++) {
+                const val = row[j]
+                if (val === undefined || val === null || val === '') continue
+                const colKey = indexToColKey(j)
+                if (typeof val === 'string' && val.startsWith('=')) {
+                  ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, f: val })
+                } else if (isNumeric(val)) {
+                  ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, t: 'n', value: Number(val) })
+                } else {
+                  ops.push({ type: 'setCell', sheet: targetName, row_uid, col: colKey, t: 's', value: String(val) })
+                }
+              }
+            }
+            if (ops.length > 0) await (window as any).api.workbook.patch(quoteId, { ops })
+            lastImportedSheet = targetName
+          }
         }
         if (lastImportedSheet) {
           try { await (window as any).api.workbook.recalc(quoteId) } catch {}
