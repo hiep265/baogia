@@ -9,7 +9,7 @@
   "main": "dist-electron/main/index.js",
   "scripts": {
     "clean": "rimraf dist dist-electron release",
-    "dev": "concurrently -k \"vite --host\" \"tsc -w -p tsconfig.main.json\" \"tsc -w -p tsconfig.preload.json\" \"wait-on tcp:5173 file:dist-electron/main/index.js file:dist-electron/preload/index.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5173 electron .\"",
+    "dev": "concurrently -k \"vite --host\" \"tsc -w -p tsconfig.main.json\" \"tsc -w -p tsconfig.preload.json\" \"wait-on tcp:5170 file:dist-electron/main/index.js file:dist-electron/preload/index.js && cross-env VITE_DEV_SERVER_URL=http://localhost:5170 electron .\"",
     "build": "npm run clean && vite build && tsc -p tsconfig.main.json && tsc -p tsconfig.preload.json",
     "build:win": "npm run build && electron-builder --win",
     "preview": "vite preview",
