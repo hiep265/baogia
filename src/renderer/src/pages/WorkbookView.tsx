@@ -28,8 +28,8 @@ export default function WorkbookView() {
   }, [quoteId, reload])
 
   const left = useMemo(() => (
-    <AssetPane />
-  ), [])
+    <AssetPane quoteId={quoteId || undefined} onWorkbookChanged={reload} />
+  ), [quoteId, reload])
 
   const right = useMemo(() => (
     <div className="workbook-pane">
