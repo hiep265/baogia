@@ -43,11 +43,12 @@
     }
   },
   "dependencies": {
+    "@univerjs/preset-sheets-advanced": "^0.10.14",
     "@univerjs/preset-sheets-core": "^0.10.14",
     "@univerjs/preset-sheets-drawing": "^0.10.14",
-    "@univerjs/preset-sheets-advanced": "^0.10.14",
     "@univerjs/presets": "^0.10.14",
     "better-sqlite3": "^12.4.1",
+    "cropperjs": "^2.1.0",
     "hyperformula": "^2.7.0",
     "pdfjs-dist": "^3.11.174",
     "react": "^18.3.1",

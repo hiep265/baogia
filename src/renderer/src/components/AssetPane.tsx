@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.js?url'
 import * as XLSX from 'xlsx'
+import Cropper from 'cropperjs'
 ;(pdfjsLib as any).GlobalWorkerOptions.workerSrc = pdfWorkerUrl
 
 type Item = { id: string; name: string; type: 'image' | 'pdf'; url: string; thumbUrl?: string; pageCount?: number; data?: Uint8Array }
@@ -37,6 +38,8 @@ export default function AssetPane({ quoteId, onWorkbookChanged }: { quoteId?: nu
   const allContainerRef = useRef<HTMLDivElement | null>(null)
   const [allRenderKey, setAllRenderKey] = useState(0)
   const allPdfDocsRef = useRef<Map<string, any>>(new Map())
+  const croppersRef = useRef<Map<string, Cropper>>(new Map())
+  const busyInsertRef = useRef(false)
 
   const onPickImages = useCallback(() => { imagesInputRef.current?.click() }, [])
   const onPickPdfs = useCallback(() => { pdfInputRef.current?.click() }, [])
@@ -268,9 +271,15 @@ export default function AssetPane({ quoteId, onWorkbookChanged }: { quoteId?: nu
     setAllOpen(false)
     try { allPdfDocsRef.current.forEach(d => d?.destroy?.()) } catch {}
     allPdfDocsRef.current.clear()
+    try { croppersRef.current.forEach(c => c.destroy()) } catch {}
+    croppersRef.current.clear()
   }, [])
 
   
+
+  useEffect(() => {
+    ;(window as any).__quoteId = quoteId || null
+  }, [quoteId])
 
   useEffect(() => {
     const el = paneRef.current
@@ -429,14 +438,30 @@ export default function AssetPane({ quoteId, onWorkbookChanged }: { quoteId?: nu
           const vp = page.getViewport({ scale })
           const ratio = window.devicePixelRatio || 1
           const canvas = document.createElement('canvas')
-          canvas.style.maxWidth = '100%'
-          canvas.style.height = 'auto'
           canvas.width = vp.width * ratio
           canvas.height = vp.height * ratio
           const ctx = canvas.getContext('2d')!
           ctx.setTransform(ratio, 0, 0, ratio, 0, 0)
           await page.render({ canvasContext: ctx, viewport: vp }).promise
-          target.appendChild(canvas)
+          const wrap = document.createElement('div')
+          wrap.style.display = 'grid'
+          wrap.style.gap = '8px'
+          const id = `${it.id}__page_${i}`
+          const img = document.createElement('img')
+          img.src = canvas.toDataURL('image/png')
+          img.style.maxWidth = '100%'
+          img.style.height = 'auto'
+          img.setAttribute('data-crop-id', id)
+          wrap.appendChild(img)
+          const btn = document.createElement('button')
+          btn.className = 'btn'
+          btn.textContent = 'Cắt & chèn trang này'
+          btn.addEventListener('click', async () => {
+            const el = target.querySelector(`img[data-crop-id="${id}"]`) as HTMLImageElement | null
+            if (el) await cropAndInsertElement(el)
+          })
+          wrap.appendChild(btn)
+          target.appendChild(wrap)
         }
       }
     }
@@ -453,6 +478,103 @@ export default function AssetPane({ quoteId, onWorkbookChanged }: { quoteId?: nu
     ro.observe(el)
     return () => { try { ro.disconnect() } catch {} }
   }, [allOpen])
+
+  useEffect(() => {
+    if (!allOpen) return
+    const container = allContainerRef.current
+    if (!container) return
+    try { croppersRef.current.forEach(c => c.destroy()) } catch {}
+    croppersRef.current.clear()
+    const imgNodes = container.querySelectorAll<HTMLImageElement>('img[data-crop-id]')
+    imgNodes.forEach((img) => {
+      const id = img.getAttribute('data-crop-id') || Math.random().toString(36).slice(2)
+      const init = () => {
+        try {
+          const c = new Cropper(img)
+          croppersRef.current.set(id, c)
+        } catch {}
+      }
+      if (img.complete && img.naturalWidth > 0) {
+        init()
+      } else {
+        const onLoad = () => { init(); img.removeEventListener('load', onLoad) }
+        img.addEventListener('load', onLoad)
+      }
+    })
+  }, [allOpen, allRenderKey, items])
+
+  const cropAndInsertElement = useCallback(async (el: HTMLImageElement) => {
+    const id = el.getAttribute('data-crop-id') || ''
+    const cropper = id ? croppersRef.current.get(id) : undefined
+    if (!cropper) return
+    if (busyInsertRef.current) return
+    busyInsertRef.current = true
+    try {
+      const cc = cropper.getCropperCanvas()
+      if (!cc) return
+      const canvas = await cc.$toCanvas()
+      const dataUrl = canvas.toDataURL('image/png')
+      await insertCroppedToMarkedColumn(dataUrl)
+    } finally {
+      busyInsertRef.current = false
+    }
+  }, [])
+
+  const cropAndInsertAll = useCallback(async () => {
+    if (busyInsertRef.current) return
+    busyInsertRef.current = true
+    try {
+      for (const [, cropper] of croppersRef.current) {
+        const cc = cropper.getCropperCanvas()
+        if (!cc) continue
+        const canvas = await cc.$toCanvas()
+        const dataUrl = canvas.toDataURL('image/png')
+        await insertCroppedToMarkedColumn(dataUrl)
+      }
+    } finally {
+      busyInsertRef.current = false
+    }
+  }, [])
+
+  const insertCroppedToMarkedColumn = useCallback(async (dataUrl: string) => {
+    const w: any = window as any
+    const target = w.__baogiaTargetColumn
+    const univerAPI = w.__univer?.univerAPI
+    if (!target || !univerAPI) {
+      alert('Chưa đánh dấu cột nhận ảnh hoặc Univer chưa sẵn sàng')
+      return
+    }
+    const { sheetName, colIndex } = target as { sheetName: string; colIndex: number }
+    let nextRow = 1
+    try {
+      const quoteId = (w as any).__quoteId || null
+      if (quoteId) {
+        const latest = await (w as any).api.workbook.getLatest(quoteId)
+        const s = latest.workbook.sheets.find((x: any) => x.name === sheetName)
+        if (s) {
+          const hasHeader = !!(s.columns && s.columns.length > 0)
+          const baseRow = hasHeader ? 1 : 0
+          nextRow = baseRow + (s.rows?.length || 0)
+        }
+      }
+    } catch {}
+    try {
+      const fWorkbook = univerAPI.getActiveWorkbook()
+      let fWorksheet = fWorkbook.getSheets().find((s: any) => s.getName?.() === sheetName)
+      if (!fWorksheet) fWorksheet = fWorkbook.getActiveSheet()
+      if (typeof fWorksheet?.insertImage === 'function') {
+        try { await fWorksheet.insertImage(dataUrl, nextRow, colIndex) } catch { await fWorksheet.insertImage(dataUrl, colIndex, nextRow) }
+      } else if (typeof univerAPI?.pasteIntoSheet === 'function') {
+        await univerAPI.pasteIntoSheet({ type: 'image', dataUrl, row: nextRow, col: colIndex })
+      } else {
+        const a1 = `${indexToColKey(colIndex)}${nextRow + 1}`
+        const fRange = fWorksheet.getRange(a1)
+        await fRange.setValue(dataUrl)
+      }
+    } catch (e: any) {
+      alert('Lỗi khi chèn ảnh: ' + (e?.message || String(e)))
+    }
+  }, [])
 
   const content = useMemo(() => (
     <div className="asset-list" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${gridMin}px, 1fr))` }}>
@@ -523,6 +645,7 @@ export default function AssetPane({ quoteId, onWorkbookChanged }: { quoteId?: nu
           <div style={{ width: 'min(95vw, 1200px)', height: '85vh', maxHeight: '95vh', background: '#0f0f0f', border: '1px solid #2a2a2a', borderRadius: 8, padding: 12, display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()} ref={allContainerRef}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
               <div style={{ fontWeight: 600, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Xem tất cả</div>
+              <button className="btn" onClick={cropAndInsertAll}>Cắt & chèn tất cả</button>
               <button className="btn ghost" onClick={onCloseAll}>Đóng</button>
             </div>
             <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
@@ -530,7 +653,13 @@ export default function AssetPane({ quoteId, onWorkbookChanged }: { quoteId?: nu
                 {items.map(it => (
                   it.type === 'image' ? (
                     <div key={it.id} style={{ display: 'grid', justifyItems: 'center' }}>
-                      <img src={it.url} style={{ maxWidth: '100%', height: 'auto' }} />
+                      <img src={it.url} data-crop-id={it.id} style={{ maxWidth: '100%', height: 'auto' }} />
+                      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                        <button className="btn" onClick={async () => {
+                          const el = allContainerRef.current?.querySelector(`img[data-crop-id="${it.id}"]`) as HTMLImageElement | null
+                          if (el) await cropAndInsertElement(el)
+                        }}>Cắt & chèn ảnh này</button>
+                      </div>
                       <div style={{ color: '#d1d5db', marginTop: 4 }}>{it.name}</div>
                     </div>
                   ) : (

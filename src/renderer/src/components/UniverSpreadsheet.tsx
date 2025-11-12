@@ -7,6 +7,7 @@ import { UniverSheetsDrawingPreset } from '@univerjs/preset-sheets-drawing'
 import '@univerjs/preset-sheets-drawing/lib/index.css'
 import { UniverSheetsAdvancedPreset } from '@univerjs/preset-sheets-advanced'
 import '@univerjs/preset-sheets-advanced/lib/index.css'
+import { UniverSheetsMarkColumnPlugin } from './UniverMarkColumnPlugin'
 
 const DEFAULT_COL_COUNT = 26
 const DEFAULT_ROW_COUNT = 100
@@ -88,7 +89,9 @@ export default function UniverSpreadsheet({ quoteId, sheetName, refreshKey }: Pr
           universerEndpoint: UNIVERSER_ENDPOINT,
         }),
       ],
-      plugins: [],
+      plugins: [
+        [UniverSheetsMarkColumnPlugin, {}],
+      ],
     })
     univerRef.current = { univer, univerAPI }
     ;(window as any).__univer = { univer, univerAPI }
